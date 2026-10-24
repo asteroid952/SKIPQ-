@@ -140,10 +140,10 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 <script type="module">
 /* ===== PASTE YOUR FIREBASE CONFIG HERE ===== */
 const FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  appId: ""
+  apiKey: "AIzaSyC2j9PXqfaTIyGmkhZijkDea62XhZL7O08",
+  authDomain: "skipq-133f6.firebaseapp.com",
+  projectId: "skipq-133f6",
+  appId: "1:858546416980:web:e70e2841971a4f2c756cc1"
 };
 /* =========================================== */
 
@@ -321,7 +321,7 @@ async function start(){
   const configured=FIREBASE_CONFIG.apiKey&&FIREBASE_CONFIG.projectId;
   try{B=configured?await cloudBackend(FIREBASE_CONFIG):demoBackend()}
   catch(e){B=demoBackend();$("modeBox").hidden=false;$("modeBox").textContent="Couldn’t reach the cloud database, so this page is running in demo mode. Check your connection and reload."}
-  if(B.mode==="demo"&&$("modeBox").hidden){$("modeBox").hidden=false;$("modeBox").textContent="Demo mode: tokens are stored in this browser only. Add your Firebase settings to the file to share one queue across all phones."}
+  if(B.mode==="demo"&&$("modeBox").hidden){$("modeBox").hidden=false;$("modeBox").textContent="NOT LINKED: demo mode keeps tokens inside this one browser, so tokens taken on other phones will not reach the staff panel. Add your Firebase settings to the file to link them."}
   if(B.mode==="cloud"){$("emailRow").hidden=false;$("pinLbl").textContent="Password"}
   const openStaff=()=>{$("tabs").hidden=false;tab(true)};
   if(STAFF)openStaff();
