@@ -128,7 +128,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
       <p class="note">While this panel is open, someone who doesn’t show up in time is marked as a no-show and the next person is called automatically.</p>
     </div>
     <div class="card">
-      <div class="row sp"><h2 style="margin:0">Queue</h2><button class="sm bad" id="reset">Clear everything</button></div>
+      <div class="row sp"><h2 style="margin:0">Queue</h2><button class="sm bad" id="reset">Reset queue to #1</button></div>
       <div class="wrap"><table class="list"><thead><tr><th>Token</th><th>Name</th><th>Come at</th><th>Status</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
       <p class="note" id="empty">No one in the queue yet.</p>
     </div>
@@ -168,7 +168,7 @@ async function cloudBackend(cfg){
     allocate(name,cnt){return fs.runTransaction(db,async tx=>{
       const cr=fs.doc(db,"counter","main"),c=await tx.get(cr),start=c.exists()?c.data().next:1;
       tx.set(cr,{next:start+cnt});const out=[];
-      for(let i=0;i<cnt;i++){const t=start+i;tx.set(tref(t),{t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at:Date.now()});out.push(t)}
+      for(let i=0;i<cnt;i++){const t=start+i;const at=Date.now()+i;tx.set(tref(t),{t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at});out.push({t,at})}
       return out;
     })},
     claim(t,from,to,extra){return fs.runTransaction(db,async tx=>{
@@ -177,6 +177,7 @@ async function cloudBackend(cfg){
       tx.update(r,Object.assign({st:to},extra||{}));return true;
     })},
     saveSettings(o){return fs.setDoc(fs.doc(db,"settings","main"),o)},
+    resetCounter(){return fs.setDoc(fs.doc(db,"counter","main"),{next:1})},
     async clear(ts){for(let i=0;i<ts.length;i+=400){const b=fs.writeBatch(db);ts.slice(i,i+400).forEach(t=>b.delete(tref(t)));await b.commit()}},
     login(email,pw){return au.signInWithEmailAndPassword(auth,email,pw)}
   };
@@ -192,11 +193,12 @@ function demoBackend(){
     onTokens(cb){tl.add(cb);setTimeout(()=>cb(load().tokens));return()=>tl.delete(cb)},
     onSettings(cb){sl.add(cb);setTimeout(()=>cb(load().settings));return()=>sl.delete(cb)},
     async allocate(name,cnt){const d=load(),out=[];
-      for(let i=0;i<cnt;i++){const t=d.next++;d.tokens.push({t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at:Date.now()});out.push(t)}
+      for(let i=0;i<cnt;i++){const t=d.next++,at=Date.now()+i;d.tokens.push({t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at});out.push({t,at})}
       save(d);return out},
     async claim(t,from,to,extra){const d=load(),p=d.tokens.find(x=>x.t===t);
       if(!p||p.st!==from)return false;Object.assign(p,{st:to},extra||{});save(d);return true},
     async saveSettings(o){const d=load();d.settings=o;save(d)},
+    async resetCounter(){const d=load();d.next=1;save(d)},
     async clear(ts){const d=load();d.tokens=d.tokens.filter(p=>!ts.includes(p.t));save(d)},
     async login(_e,pw){if(pw!=="1234")throw new Error("bad")}
   };
@@ -218,15 +220,17 @@ function etaFor(tok){
   return {ms:Date.now()+(i*S.st.avg+S.st.off)*60000,ahead:i};
 }
 function render(){
-  const have=getMine();
-  const mine=have.filter(n=>S.tokens.some(p=>p.t===n));
-  mine.forEach(n=>seen.add(n));
-  const keep=have.filter(n=>!seen.has(n)||mine.includes(n));
+  const have=getMine().map(m=>typeof m==="number"?{t:m}:m);
+  const hit=m=>S.tokens.find(p=>p.t===m.t&&(m.at==null||p.at===m.at));
+  const key=m=>m.t+":"+m.at;
+  const mine=have.filter(hit).map(m=>({m,p:hit(m)}));
+  mine.forEach(x=>seen.add(key(x.m)));
+  const keep=have.filter(m=>!seen.has(key(m))||hit(m));
   if(S.loaded&&keep.length!==have.length)setMine(keep);
   $("mineCard").hidden=!mine.length;
   let h="";
-  mine.forEach(n=>{
-    const p=S.tokens.find(x=>x.t===n),e=etaFor(n);let b="";
+  mine.forEach(x=>{
+    const p=x.p,n=p.t,e=etaFor(n);let b="";
     if(p.st==="waiting")b='<div class="muted">Please arrive at</div><div class="big">'+fmt(e.ms)+'</div><div class="muted">'+e.ahead+" "+(e.ahead===1?"person":"people")+" ahead · about "+Math.max(0,Math.round((e.ms-Date.now())/60000))+" min from now</div>";
     else if(p.st==="called"){const l=Math.max(0,Math.ceil((p.calledAt+S.st.grace*60000-Date.now())/1000));b='<div class="big" style="color:var(--warn)">It is your turn</div><div>Go to the counter now. Your spot is held for '+clock(l)+".</div>"}
     else if(p.st==="served")b='<div class="big" style="color:var(--good)">Served</div><div class="muted">Thank you for your patience.</div>';
@@ -287,7 +291,7 @@ $("cntP").onclick=()=>{cnt=Math.min(6,cnt+1);render()};
 $("mineList").addEventListener("click",async e=>{
   const b=e.target.closest("button");if(!b)return;
   if(b.dataset.leave)await leave(+b.dataset.leave);
-  if(b.dataset.dismiss)setMine(getMine().filter(n=>n!==+b.dataset.dismiss));
+  if(b.dataset.dismiss)setMine(getMine().filter(m=>(typeof m==="number"?m:m.t)!==+b.dataset.dismiss));
   tick();
 });
 $("lookBtn").onclick=()=>{
@@ -316,8 +320,8 @@ if($("panel"))$("panel").addEventListener("click",e=>{
   if(b.dataset.rm)leave(+b.dataset.rm);
 });
 $("reset").onclick=async()=>{
-  if(!confirm("Remove every token and reset the queue?"))return;
-  try{await B.clear(S.tokens.map(p=>p.t))}catch(e){}setMine([]);
+  if(!confirm("Remove every token and restart numbering from #1?"))return;
+  try{await B.clear(S.tokens.map(p=>p.t));await B.resetCounter()}catch(e){alert("Could not fully reset. Make sure the updated Firestore rules are published.")}setMine([]);
 };
 
 async function start(){
