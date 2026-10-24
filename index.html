@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QueueLess – Virtual Queue</title>
+<style>
+:root{--bg:#f3f6f4;--surface:#ffffff;--ink:#14231c;--muted:#5d6f66;--line:#d5dfd9;--accent:#0f6b4f;--accent-ink:#ffffff;--warn:#b4580b;--bad:#b42318;--good:#0f6b4f;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1814;--surface:#16241e;--ink:#e6f1ec;--muted:#9bb0a6;--line:#27382f;--accent:#4cc79a;--accent-ink:#06241a;--warn:#f0a050;--bad:#ff8a7a;--good:#4cc79a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1814;--surface:#16241e;--ink:#e6f1ec;--muted:#9bb0a6;--line:#27382f;--accent:#4cc79a;--accent-ink:#06241a;--warn:#f0a050;--bad:#ff8a7a;--good:#4cc79a;color-scheme:dark}
+*,*:before,*:after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Trebuchet MS","Segoe UI",system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:20px 16px 48px}
+h1{font:700 28px/1.2 Georgia,"Times New Roman",serif;margin:0 0 4px}
+h2{font:700 18px/1.3 Georgia,serif;margin:0 0 12px}
+p.sub{color:var(--muted);margin:0 0 18px}
+.tabs{display:flex;gap:8px;margin:0 0 18px}
+.tabs button{flex:1;padding:11px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;font:inherit;font-weight:600;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+label{display:block;font-weight:600;margin:0 0 4px}
+input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;margin-bottom:12px}
+button.go,button.sm{background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+button.go{padding:11px 18px}
+button.sm{padding:6px 11px;font-size:14px}
+button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button.bad{background:transparent;color:var(--bad);border:1px solid var(--bad)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
+.ticket{border:2px dashed var(--accent);border-radius:12px;padding:16px;text-align:center}
+.tok{font:700 52px/1 Georgia,serif;color:var(--accent)}
+.big{font:700 34px/1.1 Georgia,serif}
+.muted{color:var(--muted)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row.sp{justify-content:space-between}
+.stepper{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stepper b{min-width:64px;text-align:center;font-size:20px}
+.list{width:100%;border-collapse:collapse;font-size:15px}
+.list th,.list td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+.wrap{overflow-x:auto}
+.pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:13px;font-weight:600;border:1px solid var(--line)}
+.pill.called{color:var(--warn);border-color:var(--warn)}
+.pill.served{color:var(--good);border-color:var(--good)}
+.pill.noshow{color:var(--bad);border-color:var(--bad)}
+.note{font-size:14px;color:var(--muted)}
+.mine{border:2px dashed var(--accent);border-radius:12px;padding:14px;text-align:center;margin-bottom:12px}
+.mine .tok{font-size:40px}
+.alert{border-left:4px solid var(--warn);padding:10px 12px;background:var(--bg);border-radius:6px;margin-top:12px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<!--
+  QUEUELESS: standalone version. Works in any browser, no Claude account needed.
+
+  GO LIVE (about 5 minutes, free Firebase plan):
+  1. console.firebase.google.com > Add project.
+  2. Build > Firestore Database > Create database (production mode).
+  3. Build > Authentication > Get started > turn on "Email/Password", then add one
+     user (your staff login) under the Users tab.
+  4. Project settings > General > Your apps > Web (</>) > copy the firebaseConfig
+     values into FIREBASE_CONFIG below.
+  5. Firestore > Rules > paste the rules from the file queueless-firestore.rules > Publish.
+  6. Upload this file to any static host (Firebase Hosting, Netlify, GitHub Pages)
+     and share the link or a QR code of it.
+
+  While FIREBASE_CONFIG is empty the page runs in DEMO MODE: data stays in this browser only.
+-->
+<main>
+<h1>QueueLess</h1>
+<p class="sub">Join the queue from anywhere, then arrive when it is your time.</p>
+<div class="card alert" id="modeBox" hidden style="margin-top:0"></div>
+
+<div class="tabs" id="tabs" role="tablist" hidden>
+  <button role="tab" id="t-cust" aria-selected="true">I want a place in line</button>
+  <button role="tab" id="t-mgmt" aria-selected="false">Management</button>
+</div>
+
+<section id="cust">
+  <div class="card" id="joinCard">
+    <h2>Get your token</h2>
+    <label for="name">Your name</label>
+    <input id="name" autocomplete="name" maxlength="60" placeholder="e.g. Priya Sharma">
+    <label>How many tokens? (one per person in your group)</label>
+    <div class="stepper"><button class="sm alt" id="cntM" aria-label="Fewer tokens">−</button><b id="cntV">1</b><button class="sm alt" id="cntP" aria-label="More tokens">+</button></div>
+    <button class="go" id="join">Join queue</button>
+    <p class="note" id="joinErr" style="color:var(--bad)"></p>
+  </div>
+  <div class="card" id="mineCard" hidden><h2>Your tokens</h2><div id="mineList"></div></div>
+  <div class="card">
+    <h2>Look up a token</h2>
+    <div class="row"><input id="lookup" inputmode="numeric" placeholder="Token number" style="max-width:180px;margin:0"><button class="sm" id="lookBtn">Check</button></div>
+    <p id="lookRes" class="note" style="margin-top:10px"></p>
+  </div>
+</section>
+
+<section id="mgmt" hidden>
+  <div class="card" id="pinCard">
+    <h2>Management sign-in</h2>
+    <div id="emailRow" hidden><label for="email">Email</label><input id="email" type="email" autocomplete="username"></div>
+    <label for="pin" id="pinLbl">PIN (demo PIN is 1234)</label>
+    <input id="pin" type="password" autocomplete="current-password" style="max-width:260px">
+    <button class="go" id="pinGo">Open panel</button>
+    <p class="note" id="pinErr" style="color:var(--bad)"></p>
+  </div>
+  <div id="panel" hidden>
+    <div class="card">
+      <h2>Now at the counter</h2>
+      <div id="nowBox" class="muted">Nobody called yet.</div>
+      <div class="row" style="margin-top:12px">
+        <button class="go" id="callNext">Call next person</button>
+        <button class="sm" id="markServed">Mark served</button>
+        <button class="sm bad" id="markNo">No-show, skip</button>
+      </div>
+      <div id="graceBox" class="alert" hidden></div>
+    </div>
+    <div class="card">
+      <h2>Adjust the estimate</h2>
+      <label>Average time per person</label>
+      <div class="stepper"><button class="sm alt" data-k="avg" data-d="-1" aria-label="Decrease average">−</button><b id="avgV"></b><button class="sm alt" data-k="avg" data-d="1" aria-label="Increase average">+</button></div>
+      <label>Extra delay on every estimate (breaks, rush, early finish)</label>
+      <div class="stepper"><button class="sm alt" data-k="off" data-d="-5" aria-label="Reduce delay">−5</button><b id="offV"></b><button class="sm alt" data-k="off" data-d="5" aria-label="Add delay">+5</button></div>
+      <label>Time limit to show up once called</label>
+      <div class="stepper"><button class="sm alt" data-k="grace" data-d="-1" aria-label="Shorter limit">−</button><b id="graceV"></b><button class="sm alt" data-k="grace" data-d="1" aria-label="Longer limit">+</button></div>
+      <label style="display:flex;gap:10px;align-items:center;font-weight:600;margin:14px 0 4px"><input type="checkbox" id="autoChk" style="width:auto;margin:0"> Auto-call the next person</label>
+      <p class="note" style="margin-top:0">When on, the next person is called as soon as the counter is free, so you only tap “Mark served”.</p>
+      <p class="note">While this panel is open, someone who doesn’t show up in time is marked as a no-show and the next person is called automatically.</p>
+    </div>
+    <div class="card">
+      <div class="row sp"><h2 style="margin:0">Queue</h2><button class="sm bad" id="reset">Clear everything</button></div>
+      <div class="wrap"><table class="list"><thead><tr><th>Token</th><th>Name</th><th>Come at</th><th>Status</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+      <p class="note" id="empty">No one in the queue yet.</p>
+    </div>
+  </div>
+</section>
+<p class="note" style="margin-top:8px">Names are visible to everyone in the queue, so don’t enter anything private.</p>
+</main>
+
+<script type="module">
+/* ===== PASTE YOUR FIREBASE CONFIG HERE ===== */
+const FIREBASE_CONFIG = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  appId: ""
+};
+/* =========================================== */
+
+const FB="https://www.gstatic.com/firebasejs/10.12.2/";
+const $=id=>document.getElementById(id);
+const fmt=ms=>new Date(ms).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+const esc=t=>{const d=document.createElement("div");d.textContent=t;return d.innerHTML};
+const clock=sec=>Math.floor(sec/60)+":"+String(sec%60).padStart(2,"0");
+const STAFF=/staff/i.test(location.hash+location.search);
+window.addEventListener("hashchange",()=>location.reload());
+const DEF={avg:5,off:0,grace:3,auto:false};
+
+/* ---------- backends: same interface, cloud or demo ---------- */
+async function cloudBackend(cfg){
+  const [{initializeApp},fs,au]=await Promise.all([import(FB+"firebase-app.js"),import(FB+"firebase-firestore.js"),import(FB+"firebase-auth.js")]);
+  const app=initializeApp(cfg),db=fs.getFirestore(app),auth=au.getAuth(app);
+  const tref=t=>fs.doc(db,"tokens",String(t));
+  return {
+    mode:"cloud",
+    onTokens(cb){return fs.onSnapshot(fs.query(fs.collection(db,"tokens"),fs.orderBy("t","asc"),fs.limit(1000)),q=>cb(q.docs.map(d=>d.data())),()=>{})},
+    onSettings(cb){return fs.onSnapshot(fs.doc(db,"settings","main"),d=>cb(d.exists()?d.data():{}),()=>{})},
+    allocate(name,cnt){return fs.runTransaction(db,async tx=>{
+      const cr=fs.doc(db,"counter","main"),c=await tx.get(cr),start=c.exists()?c.data().next:1;
+      tx.set(cr,{next:start+cnt});const out=[];
+      for(let i=0;i<cnt;i++){const t=start+i;tx.set(tref(t),{t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at:Date.now()});out.push(t)}
+      return out;
+    })},
+    claim(t,from,to,extra){return fs.runTransaction(db,async tx=>{
+      const r=tref(t),s=await tx.get(r);
+      if(!s.exists()||s.data().st!==from)return false;
+      tx.update(r,Object.assign({st:to},extra||{}));return true;
+    })},
+    saveSettings(o){return fs.setDoc(fs.doc(db,"settings","main"),o)},
+    async clear(ts){for(let i=0;i<ts.length;i+=400){const b=fs.writeBatch(db);ts.slice(i,i+400).forEach(t=>b.delete(tref(t)));await b.commit()}},
+    login(email,pw){return au.signInWithEmailAndPassword(auth,email,pw)}
+  };
+}
+function demoBackend(){
+  const K="queueless-demo",tl=new Set(),sl=new Set();
+  const load=()=>{try{return Object.assign({tokens:[],next:1,settings:{}},JSON.parse(localStorage.getItem(K)||"{}"))}catch(e){return {tokens:[],next:1,settings:{}}}};
+  const save=d=>{try{localStorage.setItem(K,JSON.stringify(d))}catch(e){}fire()};
+  const fire=()=>{const d=load();tl.forEach(f=>f(d.tokens));sl.forEach(f=>f(d.settings))};
+  window.addEventListener("storage",e=>{if(e.key===K)fire()});
+  return {
+    mode:"demo",
+    onTokens(cb){tl.add(cb);setTimeout(()=>cb(load().tokens));return()=>tl.delete(cb)},
+    onSettings(cb){sl.add(cb);setTimeout(()=>cb(load().settings));return()=>sl.delete(cb)},
+    async allocate(name,cnt){const d=load(),out=[];
+      for(let i=0;i<cnt;i++){const t=d.next++;d.tokens.push({t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at:Date.now()});out.push(t)}
+      save(d);return out},
+    async claim(t,from,to,extra){const d=load(),p=d.tokens.find(x=>x.t===t);
+      if(!p||p.st!==from)return false;Object.assign(p,{st:to},extra||{});save(d);return true},
+    async saveSettings(o){const d=load();d.settings=o;save(d)},
+    async clear(ts){const d=load();d.tokens=d.tokens.filter(p=>!ts.includes(p.t));save(d)},
+    async login(_e,pw){if(pw!=="1234")throw new Error("bad")}
+  };
+}
+
+/* ---------- app ---------- */
+let B,mgr=false,cnt=1,busy=false,skipping=false,autoBusy=false,lastAuto=0;
+let S={tokens:[],st:Object.assign({},DEF)};
+const MY="queueless-mine2";
+let memMine=[];
+const getMine=()=>{try{return JSON.parse(localStorage.getItem(MY)||"[]")}catch(e){return memMine}};
+const setMine=a=>{memMine=a;try{localStorage.setItem(MY,JSON.stringify(a))}catch(e){}};
+
+const active=()=>S.tokens.filter(p=>p.st==="waiting"||p.st==="called");
+function etaFor(tok){
+  const a=active(),i=a.findIndex(p=>p.t===tok);if(i<0)return null;
+  if(a[i].st==="called")return {ms:Date.now(),ahead:0};
+  return {ms:Date.now()+(i*S.st.avg+S.st.off)*60000,ahead:i};
+}
+function render(){
+  const have=getMine();
+  const mine=have.filter(n=>S.tokens.some(p=>p.t===n));
+  if(S.loaded&&mine.length!==have.length)setMine(mine);
+  $("mineCard").hidden=!mine.length;
+  let h="";
+  mine.forEach(n=>{
+    const p=S.tokens.find(x=>x.t===n),e=etaFor(n);let b="";
+    if(p.st==="waiting")b='<div class="muted">Please arrive at</div><div class="big">'+fmt(e.ms)+'</div><div class="muted">'+e.ahead+" "+(e.ahead===1?"person":"people")+" ahead · about "+Math.max(0,Math.round((e.ms-Date.now())/60000))+" min from now</div>";
+    else if(p.st==="called"){const l=Math.max(0,Math.ceil((p.calledAt+S.st.grace*60000-Date.now())/1000));b='<div class="big" style="color:var(--warn)">It is your turn</div><div>Go to the counter now. Your spot is held for '+clock(l)+".</div>"}
+    else if(p.st==="served")b='<div class="big" style="color:var(--good)">Served</div><div class="muted">Thank you for your patience.</div>';
+    else b='<div class="big" style="color:var(--bad)">Missed your turn</div><div class="muted">Join again to get a new token.</div>';
+    const live=p.st==="waiting"||p.st==="called";
+    h+='<div class="mine"><div class="tok">#'+p.t+'</div><div class="muted">'+esc(p.n)+'</div><hr style="border:0;border-top:1px solid var(--line);margin:10px 0">'+b+'<div style="margin-top:10px">'+(live?'<button class="sm alt" data-leave="'+p.t+'">Leave queue</button>':'<button class="sm alt" data-dismiss="'+p.t+'">Dismiss</button>')+"</div></div>";
+  });
+  $("mineList").innerHTML=h;$("cntV").textContent=cnt;
+  if(!mgr)return;
+  const cur=S.tokens.find(p=>p.st==="called");
+  $("nowBox").innerHTML=cur?'<span class="big">#'+cur.t+"</span> "+esc(cur.n):"Nobody called yet.";
+  $("markServed").disabled=!cur;$("markNo").disabled=!cur;
+  const gb=$("graceBox");
+  if(cur){const l=Math.max(0,Math.ceil((cur.calledAt+S.st.grace*60000-Date.now())/1000));gb.hidden=false;gb.textContent="Waiting for #"+cur.t+" to arrive. Auto-skip in "+clock(l)+"."}else gb.hidden=true;
+  $("autoChk").checked=!!S.st.auto;$("avgV").textContent=S.st.avg+" min";$("offV").textContent=(S.st.off>0?"+":"")+S.st.off+" min";$("graceV").textContent=S.st.grace+" min";
+  let rows="";
+  S.tokens.slice(-40).forEach(p=>{
+    const e=p.st==="waiting"?etaFor(p.t):null,lab={waiting:"Waiting",called:"Called",served:"Served",noshow:"No-show"}[p.st];
+    rows+="<tr><td>#"+p.t+"</td><td>"+esc(p.n)+"</td><td>"+(e?fmt(e.ms):"–")+'</td><td><span class="pill '+p.st+'">'+lab+"</span></td><td>"+((p.st==="waiting"||p.st==="called")?'<button class="sm bad" data-rm="'+p.t+'">Remove</button>':"")+"</td></tr>";
+  });
+  $("rows").innerHTML=rows;$("empty").hidden=S.tokens.length>0;
+}
+async function callNextWaiting(){
+  const ws=S.tokens.filter(p=>p.st==="waiting").slice(0,4);
+  for(const w of ws){if(await B.claim(w.t,"waiting","called",{calledAt:Date.now()}))return}
+}
+async function autoSkip(){
+  if(!mgr||skipping)return;const now=Date.now();
+  const late=S.tokens.filter(p=>p.st==="called"&&now-p.calledAt>=S.st.grace*60000);
+  if(!late.length)return;skipping=true;
+  try{let did=false;for(const p of late){if(await B.claim(p.t,"called","noshow"))did=true}if(did)await callNextWaiting()}catch(e){}
+  skipping=false;
+}
+async function autoAdvance(){
+  if(!mgr||!S.st.auto||autoBusy||skipping||Date.now()-lastAuto<4000)return;
+  if(S.tokens.some(p=>p.st==="called")||!S.tokens.some(p=>p.st==="waiting"))return;
+  autoBusy=true;lastAuto=Date.now();
+  try{await callNextWaiting()}catch(e){}
+  autoBusy=false;
+}
+const tick=()=>{render();autoSkip();autoAdvance()};
+async function leave(t){
+  const p=S.tokens.find(x=>x.t===t);if(!p)return;
+  try{const ok=await B.claim(t,p.st,"noshow");if(ok&&p.st==="called"&&mgr)await callNextWaiting()}catch(e){}
+}
+async function setSt(ch){try{await B.saveSettings(Object.assign({},S.st,ch))}catch(e){}}
+
+$("join").onclick=async()=>{
+  const n=$("name").value.trim();
+  if(!n){$("joinErr").textContent="Enter your name to get a token.";return}
+  if(busy)return;busy=true;$("join").disabled=true;$("joinErr").textContent="";
+  try{const made=await B.allocate(n,cnt);setMine(getMine().concat(made));$("name").value="";cnt=1}
+  catch(e){$("joinErr").textContent="Couldn’t get a token. Check your connection and try again."}
+  busy=false;$("join").disabled=false;tick();
+};
+$("cntM").onclick=()=>{cnt=Math.max(1,cnt-1);render()};
+$("cntP").onclick=()=>{cnt=Math.min(6,cnt+1);render()};
+$("mineList").addEventListener("click",async e=>{
+  const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.leave)await leave(+b.dataset.leave);
+  if(b.dataset.dismiss)setMine(getMine().filter(n=>n!==+b.dataset.dismiss));
+  tick();
+});
+$("lookBtn").onclick=()=>{
+  const t=+$("lookup").value,p=S.tokens.find(x=>x.t===t);
+  if(!p){$("lookRes").textContent="No token with that number.";return}
+  const e=etaFor(t);
+  $("lookRes").textContent=p.st==="waiting"?"#"+t+": come at "+fmt(e.ms)+" ("+e.ahead+" ahead).":p.st==="called"?"#"+t+" is being called now.":p.st==="served"?"#"+t+" has been served.":"#"+t+" missed the turn.";
+};
+const tab=m=>{$("t-cust").setAttribute("aria-selected",!m);$("t-mgmt").setAttribute("aria-selected",m);$("cust").hidden=m;$("mgmt").hidden=!m};
+$("t-cust").onclick=()=>tab(false);$("t-mgmt").onclick=()=>tab(true);
+$("pinGo").onclick=async()=>{
+  try{await B.login($("email").value.trim(),$("pin").value);mgr=true;$("pinCard").hidden=true;$("panel").hidden=false;$("pinErr").textContent="";tick()}
+  catch(e){$("pinErr").textContent=B.mode==="cloud"?"Sign-in failed. Check the email and password.":"Wrong PIN. The demo PIN is 1234."}
+};
+$("callNext").onclick=async()=>{
+  try{const c=S.tokens.find(p=>p.st==="called");if(c)await B.claim(c.t,"called","served");await callNextWaiting()}catch(e){}
+};
+$("markServed").onclick=()=>{const c=S.tokens.find(p=>p.st==="called");if(c)B.claim(c.t,"called","served").catch(()=>{})};
+$("autoChk").onchange=e=>setSt({auto:e.target.checked});
+$("markNo").onclick=()=>{const c=S.tokens.find(p=>p.st==="called");if(c)leave(c.t)};
+if($("panel"))$("panel").addEventListener("click",e=>{
+  const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.k){const k=b.dataset.k;let v=S.st[k]+ +b.dataset.d;
+    if(k==="avg"||k==="grace")v=Math.max(1,v);else v=Math.max(-30,Math.min(120,v));
+    setSt({[k]:v})}
+  if(b.dataset.rm)leave(+b.dataset.rm);
+});
+$("reset").onclick=async()=>{
+  if(!confirm("Remove every token and reset the queue?"))return;
+  try{await B.clear(S.tokens.map(p=>p.t))}catch(e){}setMine([]);
+};
+
+async function start(){
+  const configured=FIREBASE_CONFIG.apiKey&&FIREBASE_CONFIG.projectId;
+  try{B=configured?await cloudBackend(FIREBASE_CONFIG):demoBackend()}
+  catch(e){B=demoBackend();$("modeBox").hidden=false;$("modeBox").textContent="Couldn’t reach the cloud database, so this page is running in demo mode. Check your connection and reload."}
+  if(B.mode==="demo"&&$("modeBox").hidden){$("modeBox").hidden=false;$("modeBox").textContent="Demo mode: tokens are stored in this browser only. Add your Firebase settings to the file to share one queue across all phones."}
+  if(B.mode==="cloud"){$("emailRow").hidden=false;$("pinLbl").textContent="Password"}
+  const openStaff=()=>{$("tabs").hidden=false;tab(true)};
+  if(STAFF)openStaff();
+  else{let n=0,t0=0;document.querySelector("h1").addEventListener("click",()=>{const now=Date.now();n=now-t0<1500?n+1:1;t0=now;if(n>=5)openStaff()})}
+  B.onTokens(t=>{S.tokens=t;S.loaded=true;tick()});
+  B.onSettings(s=>{S.st=Object.assign({},DEF,s);tick()});
+}
+setInterval(tick,1000);render();start();
+</script>
+</body>
+</html>
