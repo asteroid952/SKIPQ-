@@ -88,6 +88,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <p class="note" id="joinErr" style="color:var(--bad)"></p>
   </div>
   <div class="card" id="mineCard" hidden><h2>Your tokens</h2><div id="mineList"></div></div>
+  <div class="card" id="mapCard" hidden>
+    <h2>Where to go</h2>
+    <p class="note" id="placeName" style="margin:0 0 10px"></p>
+    <iframe id="mapFrame" title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" style="width:100%;height:240px;border:0;border-radius:12px"></iframe>
+    <div style="margin-top:12px"><button class="sm" id="dirBtn">Get directions</button></div>
+  </div>
   <div class="card">
     <h2>Look up a token</h2>
     <div class="row"><input id="lookup" inputmode="numeric" placeholder="Token number" style="max-width:180px;margin:0"><button class="sm" id="lookBtn">Check</button></div>
@@ -128,6 +134,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
       <p class="note">While this panel is open, someone who doesn’t show up in time is marked as a no-show and the next person is called automatically.</p>
     </div>
     <div class="card">
+      <h2>Location on the map</h2>
+      <label for="placeIn">Address or place name (customers see a map and a directions button)</label>
+      <input id="placeIn" maxlength="150" placeholder="e.g. City Clinic, MG Road, Pune">
+      <div class="row"><button class="sm" id="placeSave">Save location</button><button class="sm alt" id="placeClear">Remove map</button></div>
+    </div>
+    <div class="card">
       <div class="row sp"><h2 style="margin:0">Queue</h2><button class="sm bad" id="reset">Reset queue to #1</button></div>
       <div class="wrap"><table class="list"><thead><tr><th>Token</th><th>Name</th><th>Come at</th><th>Status</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
       <p class="note" id="empty">No one in the queue yet.</p>
@@ -154,7 +166,7 @@ const esc=t=>{const d=document.createElement("div");d.textContent=t;return d.inn
 const clock=sec=>Math.floor(sec/60)+":"+String(sec%60).padStart(2,"0");
 const STAFF=/staff/i.test(location.hash+location.search);
 window.addEventListener("hashchange",()=>location.reload());
-const DEF={avg:5,off:0,grace:3,auto:false};
+const DEF={avg:5,off:0,grace:3,auto:false,place:""};
 
 /* ---------- backends: same interface, cloud or demo ---------- */
 async function cloudBackend(cfg){
@@ -166,7 +178,13 @@ async function cloudBackend(cfg){
     onTokens(cb){return fs.onSnapshot(fs.query(fs.collection(db,"tokens"),fs.orderBy("t","asc"),fs.limit(1000)),q=>cb(q.docs.map(d=>d.data())),()=>{})},
     onSettings(cb){return fs.onSnapshot(fs.doc(db,"settings","main"),d=>cb(d.exists()?d.data():{}),()=>{})},
     allocate(name,cnt){return fs.runTransaction(db,async tx=>{
-      const cr=fs.doc(db,"counter","main"),c=await tx.get(cr),start=c.exists()?c.data().next:1;
+      const cr=fs.doc(db,"counter","main"),c=await tx.get(cr);let start=c.exists()?c.data().next:1;
+      const free=async(from,n)=>(await Promise.all(Array.from({length:n},(_,i)=>tx.get(tref(from+i))))).map(d=>!d.exists());
+      if((await free(start,cnt)).some(x=>!x)){
+        const W=60,fl=await free(start,W+cnt);let k=-1;
+        for(let i=0;i<=W;i++){if(fl.slice(i,i+cnt).every(Boolean)){k=i;break}}
+        if(k<0)throw new Error("queue-full");start+=k;
+      }
       tx.set(cr,{next:start+cnt});const out=[];
       for(let i=0;i<cnt;i++){const t=start+i;const at=Date.now()+i;tx.set(tref(t),{t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at});out.push({t,at})}
       return out;
@@ -219,7 +237,16 @@ function etaFor(tok){
   if(a[i].st==="called")return {ms:Date.now(),ahead:0};
   return {ms:Date.now()+(i*S.st.avg+S.st.off)*60000,ahead:i};
 }
+let lastPlace="";
+function renderMap(){
+  const pl=(S.st.place||"").trim();
+  $("mapCard").hidden=!pl;
+  if(pl!==lastPlace){lastPlace=pl;$("placeName").textContent=pl;
+    $("mapFrame").src=pl?"https://maps.google.com/maps?q="+encodeURIComponent(pl)+"&z=15&output=embed":"about:blank"}
+  const pi=$("placeIn");if(pi&&document.activeElement!==pi)pi.value=pl;
+}
 function render(){
+  renderMap();
   const have=getMine().map(m=>typeof m==="number"?{t:m}:m);
   const hit=m=>S.tokens.find(p=>p.t===m.t&&(m.at==null||p.at===m.at));
   const key=m=>m.t+":"+m.at;
@@ -283,7 +310,7 @@ $("join").onclick=async()=>{
   if(!n){$("joinErr").textContent="Enter your name to get a token.";return}
   if(busy)return;busy=true;$("join").disabled=true;$("joinErr").textContent="";
   try{const made=await B.allocate(n,cnt);setMine(getMine().concat(made));$("name").value="";cnt=1}
-  catch(e){const c=(e&&e.code||"").replace("firestore/","");$("joinErr").textContent=c==="permission-denied"?"Couldn’t get a token: the database rules are blocking it (permission-denied). Ask the owner to publish the Firestore rules.":"Couldn’t get a token"+(c?" ("+c+")":"")+". Check your connection and try again."}
+  catch(e){const c=(e&&e.code||"").replace("firestore/","");$("joinErr").textContent=(e&&e.message==="queue-full")?"The queue numbering is out of sync. Ask the staff to press Reset queue to #1.":c==="permission-denied"?"Couldn’t get a token: the database rules are blocking it (permission-denied). Ask the owner to publish the Firestore rules.":"Couldn’t get a token"+(c?" ("+c+")":"")+". Check your connection and try again."}
   busy=false;$("join").disabled=false;tick();
 };
 $("cntM").onclick=()=>{cnt=Math.max(1,cnt-1);render()};
@@ -310,6 +337,9 @@ $("callNext").onclick=async()=>{
   try{const c=S.tokens.find(p=>p.st==="called");if(c)await B.claim(c.t,"called","served");await callNextWaiting()}catch(e){}
 };
 $("markServed").onclick=()=>{const c=S.tokens.find(p=>p.st==="called");if(c)B.claim(c.t,"called","served").catch(()=>{})};
+$("dirBtn").onclick=()=>{const pl=(S.st.place||"").trim();if(pl)window.open("https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(pl),"_blank","noopener")};
+$("placeSave").onclick=()=>setSt({place:$("placeIn").value.trim()});
+$("placeClear").onclick=()=>{$("placeIn").value="";setSt({place:""})};
 $("autoChk").onchange=e=>setSt({auto:e.target.checked});
 $("markNo").onclick=()=>{const c=S.tokens.find(p=>p.st==="called");if(c)leave(c.t)};
 if($("panel"))$("panel").addEventListener("click",e=>{
