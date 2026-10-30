@@ -48,77 +48,102 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .mine .tok{font-size:40px}
 .alert{border-left:4px solid var(--warn);padding:10px 12px;background:var(--bg);border-radius:6px;margin-top:12px}
 [hidden]{display:none!important}
+.res{display:block;width:100%;text-align:left;padding:12px;margin:0 0 8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;cursor:pointer}
+.res b{display:block}.res span{color:var(--muted);font-size:14px}
 </style>
 </head>
 <body>
 <!--
-  QUEUELESS: standalone version. Works in any browser, no Claude account needed.
-
-  GO LIVE (about 5 minutes, free Firebase plan):
-  1. console.firebase.google.com > Add project.
-  2. Build > Firestore Database > Create database (production mode).
-  3. Build > Authentication > Get started > turn on "Email/Password", then add one
-     user (your staff login) under the Users tab.
-  4. Project settings > General > Your apps > Web (</>) > copy the firebaseConfig
-     values into FIREBASE_CONFIG below.
-  5. Firestore > Rules > paste the rules from the file queueless-firestore.rules > Publish.
-  6. Upload this file to any static host (Firebase Hosting, Netlify, GitHub Pages)
-     and share the link or a QR code of it.
-
-  While FIREBASE_CONFIG is empty the page runs in DEMO MODE: data stays in this browser only.
+  QUEUELESS (universal): many places, each with its own queue and its own staff login.
+  Customers type a place name, pick it and join. Place owners create an account on the
+  Management tab (open this page with #staff on the end) and register their place.
+  FIREBASE: paste your config below. Rules: see queueless-firestore.rules.
+  While FIREBASE_CONFIG is empty the page runs in DEMO MODE (this browser only).
 -->
 <main>
-<h1>QueueLess</h1>
-<p class="sub">Join the queue from anywhere, then arrive when it is your time.</p>
+<h1 id="ttl">QueueLess</h1>
+<p class="sub">Find a place, join its queue from anywhere, and arrive when it is your time.</p>
 <div class="card alert" id="modeBox" hidden style="margin-top:0"></div>
-
 <div class="tabs" id="tabs" role="tablist" hidden>
-  <button role="tab" id="t-cust" aria-selected="true">I want a place in line</button>
-  <button role="tab" id="t-mgmt" aria-selected="false">Management</button>
+  <button role="tab" id="t-cust" aria-selected="true">Customer</button>
+  <button role="tab" id="t-mgmt" aria-selected="false">Place owner</button>
 </div>
 
 <section id="cust">
-  <div class="card" id="joinCard">
-    <h2>Get your token</h2>
-    <label for="name">Your name</label>
-    <input id="name" autocomplete="name" maxlength="60" placeholder="e.g. Priya Sharma">
-    <label>How many tokens? (one per person in your group)</label>
-    <div class="stepper"><button class="sm alt" id="cntM" aria-label="Fewer tokens">−</button><b id="cntV">1</b><button class="sm alt" id="cntP" aria-label="More tokens">+</button></div>
-    <button class="go" id="join">Join queue</button>
-    <p class="note" id="joinErr" style="color:var(--bad)"></p>
-  </div>
-  <div class="card" id="mineCard" hidden><h2>Your tokens</h2><div id="mineList"></div></div>
-  <div class="card" id="mapCard" hidden>
-    <h2>Where to go</h2>
-    <p class="note" id="placeName" style="margin:0 0 10px"></p>
-    <iframe id="mapFrame" title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" style="width:100%;height:240px;border:0;border-radius:12px"></iframe>
-    <div style="margin-top:12px"><button class="sm" id="dirBtn">Get directions</button></div>
-    <div id="tripBox" hidden style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
-      <button class="sm" id="tripGo">How long to get there?</button>
-      <div class="row" id="tripModes" hidden style="margin-top:10px">
-        <button class="sm" data-mode="car">By car</button><button class="sm" data-mode="bike">By bike</button><button class="sm" data-mode="foot">On foot</button>
-      </div>
-      <p id="tripOut" style="margin:12px 0 0;font-weight:600"></p>
-      <p class="note">Your position is used only on your phone and sent, with the destination, to a free routing service to work out the time. It is never saved in the queue.</p>
+  <div id="home">
+    <div class="card">
+      <h2>Where do you want to queue?</h2>
+      <label for="q">Type the name of the place</label>
+      <input id="q" placeholder="e.g. City Clinic" autocomplete="off">
+      <div id="results"></div>
+      <p class="note" id="resNote"></p>
     </div>
+    <div class="card" id="myQ" hidden><h2>Your queues</h2><div id="myQList"></div></div>
   </div>
-  <div class="card">
-    <h2>Look up a token</h2>
-    <div class="row"><input id="lookup" inputmode="numeric" placeholder="Token number" style="max-width:180px;margin:0"><button class="sm" id="lookBtn">Check</button></div>
-    <p id="lookRes" class="note" style="margin-top:10px"></p>
+
+  <div id="placeView" hidden>
+    <button class="sm alt" id="backBtn">← All places</button>
+    <h2 id="pvName" style="margin-top:14px"></h2>
+    <p class="note" id="pvAddr" style="margin-top:-6px"></p>
+    <div id="pvBody">
+      <div class="card" id="joinCard">
+        <h2>Get your token</h2>
+        <label for="name">Your name</label>
+        <input id="name" autocomplete="name" maxlength="60" placeholder="e.g. Priya Sharma">
+        <label>How many tokens? (one per person in your group)</label>
+        <div class="stepper"><button class="sm alt" id="cntM" aria-label="Fewer tokens">−</button><b id="cntV">1</b><button class="sm alt" id="cntP" aria-label="More tokens">+</button></div>
+        <button class="go" id="join">Join queue</button>
+        <p class="note" id="joinErr" style="color:var(--bad)"></p>
+      </div>
+      <div class="card" id="mineCard" hidden><h2>Your tokens</h2><div id="mineList"></div></div>
+      <div class="card" id="mapCard" hidden>
+        <h2>Where to go</h2>
+        <p class="note" id="placeName" style="margin:0 0 10px"></p>
+        <iframe id="mapFrame" title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" style="width:100%;height:240px;border:0;border-radius:12px"></iframe>
+        <div style="margin-top:12px"><button class="sm" id="dirBtn">Get directions</button></div>
+        <div id="tripBox" hidden style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+          <button class="sm" id="tripGo">How long to get there?</button>
+          <div class="row" id="tripModes" hidden style="margin-top:10px">
+            <button class="sm" data-mode="car">By car</button><button class="sm" data-mode="bike">By bike</button><button class="sm" data-mode="foot">On foot</button>
+          </div>
+          <p id="tripOut" style="margin:12px 0 0;font-weight:600"></p>
+          <p class="note">Your position is used only on your phone and sent, with the destination, to a free routing service to work out the time. It is never saved in the queue.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Look up a token</h2>
+        <div class="row"><input id="lookup" inputmode="numeric" placeholder="Token number" style="max-width:180px;margin:0"><button class="sm" id="lookBtn">Check</button></div>
+        <p id="lookRes" class="note" style="margin-top:10px"></p>
+      </div>
+    </div>
   </div>
 </section>
 
 <section id="mgmt" hidden>
-  <div class="card" id="pinCard">
-    <h2>Management sign-in</h2>
-    <div id="emailRow" hidden><label for="email">Email</label><input id="email" type="email" autocomplete="username"></div>
-    <label for="pin" id="pinLbl">PIN (demo PIN is 1234)</label>
-    <input id="pin" type="password" autocomplete="current-password" style="max-width:260px">
-    <button class="go" id="pinGo">Open panel</button>
-    <p class="note" id="pinErr" style="color:var(--bad)"></p>
+  <div class="card" id="authCard">
+    <h2>Place owner sign-in</h2>
+    <label for="email">Email</label><input id="email" type="email" autocomplete="username">
+    <label for="pw">Password (6 or more characters)</label><input id="pw" type="password" autocomplete="current-password">
+    <div class="row"><button class="go" id="loginBtn">Sign in</button><button class="sm alt" id="signupBtn">Create account</button></div>
+    <p class="note">New here? Enter an email and password, tap Create account, then register your place.</p>
+    <p class="note" id="authErr" style="color:var(--bad)"></p>
+  </div>
+  <div class="card" id="regCard" hidden>
+    <h2>Register your place</h2>
+    <label for="rName">Place name (customers search for this)</label><input id="rName" maxlength="80" placeholder="e.g. City Clinic">
+    <label for="rAddr">Address</label><input id="rAddr" maxlength="150" placeholder="e.g. MG Road, Pune">
+    <button class="go" id="regBtn">Register place</button>
+    <p class="note" id="regMsg"></p>
+    <button class="sm alt" id="logoutBtn2">Sign out</button>
   </div>
   <div id="panel" hidden>
+    <div class="card"><div class="row sp"><div><b id="mpName"></b><div class="note" id="mpUser"></div></div><button class="sm alt" id="logoutBtn">Sign out</button></div></div>
+    <div class="card">
+      <h2>Your customer link</h2>
+      <input id="shareLink" readonly>
+      <button class="sm" id="copyLink">Copy link</button>
+      <p class="note" id="copyMsg">Share this link or turn it into a QR code. It opens your queue directly.</p>
+    </div>
     <div class="card">
       <h2>Now at the counter</h2>
       <div id="nowBox" class="muted">Nobody called yet.</div>
@@ -142,10 +167,11 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
       <p class="note">While this panel is open, someone who doesn’t show up in time is marked as a no-show and the next person is called automatically.</p>
     </div>
     <div class="card">
-      <h2>Location on the map</h2>
-      <label for="placeIn">Address or place name (customers see a map and a directions button)</label>
-      <input id="placeIn" maxlength="150" placeholder="e.g. City Clinic, MG Road, Pune">
-      <div class="row"><button class="sm" id="placeSave">Save location</button><button class="sm alt" id="placeClear">Remove map</button></div>
+      <h2>Name and location</h2>
+      <label for="nameIn">Place name</label><input id="nameIn" maxlength="80">
+      <label for="placeIn">Address, Google Maps link or coordinates</label>
+      <input id="placeIn" maxlength="200" placeholder="e.g. City Clinic, MG Road, Pune">
+      <div class="row"><button class="sm" id="placeSave">Save</button><button class="sm alt" id="placeHere">Use my current location</button></div>
       <p class="note" id="placeMsg"></p>
     </div>
     <div class="card">
@@ -155,7 +181,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     </div>
   </div>
 </section>
-<p class="note" style="margin-top:8px">Names are visible to everyone in the queue, so don’t enter anything private.</p>
+<p class="note" style="margin-top:8px">Names are visible to everyone in a queue, so don’t enter anything private.</p>
 </main>
 
 <script type="module">
@@ -171,87 +197,109 @@ const FIREBASE_CONFIG = {
 const FB="https://www.gstatic.com/firebasejs/10.12.2/";
 const $=id=>document.getElementById(id);
 const fmt=ms=>new Date(ms).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
-const esc=t=>{const d=document.createElement("div");d.textContent=t;return d.innerHTML};
+const esc=t=>{const d=document.createElement("div");d.textContent=t==null?"":t;return d.innerHTML};
 const clock=sec=>Math.floor(sec/60)+":"+String(sec%60).padStart(2,"0");
-const STAFF=/staff/i.test(location.hash+location.search);
-window.addEventListener("hashchange",()=>location.reload());
-const DEF={avg:5,off:0,grace:3,auto:false,place:"",lat:null,lng:null};
+const DEFS={avg:5,off:0,grace:3,auto:false};
+const st=p=>Object.assign({},DEFS,p||{});
 
-/* ---------- backends: same interface, cloud or demo ---------- */
+/* ---------- backends ---------- */
 async function cloudBackend(cfg){
   const [{initializeApp},fs,au]=await Promise.all([import(FB+"firebase-app.js"),import(FB+"firebase-firestore.js"),import(FB+"firebase-auth.js")]);
   const app=initializeApp(cfg),db=fs.initializeFirestore(app,{experimentalAutoDetectLongPolling:true}),auth=au.getAuth(app);
-  const tref=t=>fs.doc(db,"tokens",String(t));
+  const pref=pid=>fs.doc(db,"places",pid),tref=(pid,t)=>fs.doc(db,"places",pid,"tokens",String(t));
   return {
     mode:"cloud",
-    onTokens(cb){return fs.onSnapshot(fs.query(fs.collection(db,"tokens"),fs.orderBy("t","asc"),fs.limit(1000)),q=>cb(q.docs.map(d=>d.data())),()=>{})},
-    onSettings(cb){return fs.onSnapshot(fs.doc(db,"settings","main"),d=>cb(d.exists()?d.data():{}),()=>{})},
-    allocate(name,cnt){return fs.runTransaction(db,async tx=>{
-      const cr=fs.doc(db,"counter","main"),c=await tx.get(cr);let start=c.exists()?c.data().next:1;
-      const free=async(from,n)=>(await Promise.all(Array.from({length:n},(_,i)=>tx.get(tref(from+i))))).map(d=>!d.exists());
+    onPlaces(cb){return fs.onSnapshot(fs.query(fs.collection(db,"places"),fs.limit(500)),q=>cb(q.docs.map(d=>Object.assign({id:d.id},d.data()))),()=>{})},
+    onTokens(pid,cb){return fs.onSnapshot(fs.query(fs.collection(db,"places",pid,"tokens"),fs.orderBy("t","asc"),fs.limit(1000)),q=>cb(q.docs.map(d=>d.data())),()=>{})},
+    onAuth(cb){return au.onAuthStateChanged(auth,u=>cb(u?{uid:u.uid,email:u.email}:null))},
+    login:(e,p)=>au.signInWithEmailAndPassword(auth,e,p),
+    signup:(e,p)=>au.createUserWithEmailAndPassword(auth,e,p),
+    logout:()=>au.signOut(auth),
+    async createPlace(data){const r=fs.doc(fs.collection(db,"places"));await fs.setDoc(r,Object.assign({next:1},data));return r.id},
+    updatePlace:(pid,f)=>fs.updateDoc(pref(pid),f),
+    allocate(pid,name,cnt){return fs.runTransaction(db,async tx=>{
+      const pr=pref(pid),ps=await tx.get(pr);if(!ps.exists())throw new Error("no-place");
+      let start=ps.data().next||1;
+      const free=async(from,n)=>(await Promise.all(Array.from({length:n},(_,i)=>tx.get(tref(pid,from+i))))).map(d=>!d.exists());
       if((await free(start,cnt)).some(x=>!x)){
         const W=60,fl=await free(start,W+cnt);let k=-1;
         for(let i=0;i<=W;i++){if(fl.slice(i,i+cnt).every(Boolean)){k=i;break}}
         if(k<0)throw new Error("queue-full");start+=k;
       }
-      tx.set(cr,{next:start+cnt});const out=[];
-      for(let i=0;i<cnt;i++){const t=start+i;const at=Date.now()+i;tx.set(tref(t),{t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at});out.push({t,at})}
+      tx.update(pr,{next:start+cnt});const out=[];
+      for(let i=0;i<cnt;i++){const t=start+i,at=Date.now()+i;
+        tx.set(tref(pid,t),{t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at});out.push({t,at})}
       return out;
     })},
-    claim(t,from,to,extra){return fs.runTransaction(db,async tx=>{
-      const r=tref(t),s=await tx.get(r);
+    claim(pid,t,from,to,extra){return fs.runTransaction(db,async tx=>{
+      const r=tref(pid,t),s=await tx.get(r);
       if(!s.exists()||s.data().st!==from)return false;
       tx.update(r,Object.assign({st:to},extra||{}));return true;
     })},
-    saveSettings(o){return fs.setDoc(fs.doc(db,"settings","main"),o)},
-    resetCounter(){return fs.setDoc(fs.doc(db,"counter","main"),{next:1})},
-    async clear(ts){for(let i=0;i<ts.length;i+=400){const b=fs.writeBatch(db);ts.slice(i,i+400).forEach(t=>b.delete(tref(t)));await b.commit()}},
-    login(email,pw){return au.signInWithEmailAndPassword(auth,email,pw)}
+    async clear(pid,ts){for(let i=0;i<ts.length;i+=400){const b=fs.writeBatch(db);ts.slice(i,i+400).forEach(t=>b.delete(tref(pid,t)));await b.commit()}},
+    resetCounter:pid=>fs.updateDoc(pref(pid),{next:1})
   };
 }
 function demoBackend(){
-  const K="queueless-demo",tl=new Set(),sl=new Set();
-  const load=()=>{try{return Object.assign({tokens:[],next:1,settings:{}},JSON.parse(localStorage.getItem(K)||"{}"))}catch(e){return {tokens:[],next:1,settings:{}}}};
+  const K="queueless-demo2",L=new Set();
+  const blank=()=>({places:{},tokens:{},user:null});
+  const load=()=>{try{return Object.assign(blank(),JSON.parse(localStorage.getItem(K)||"{}"))}catch(e){return blank()}};
+  const fire=()=>L.forEach(f=>f());
   const save=d=>{try{localStorage.setItem(K,JSON.stringify(d))}catch(e){}fire()};
-  const fire=()=>{const d=load();tl.forEach(f=>f(d.tokens));sl.forEach(f=>f(d.settings))};
   window.addEventListener("storage",e=>{if(e.key===K)fire()});
+  const sub=fn=>{L.add(fn);setTimeout(fn);return()=>L.delete(fn)};
+  const sign=async(e,p)=>{if(!e||(p||"").length<4)throw Object.assign(new Error("bad"),{code:"auth/weak-password"});const d=load();d.user={uid:e.toLowerCase(),email:e};save(d)};
   return {
     mode:"demo",
-    onTokens(cb){tl.add(cb);setTimeout(()=>cb(load().tokens));return()=>tl.delete(cb)},
-    onSettings(cb){sl.add(cb);setTimeout(()=>cb(load().settings));return()=>sl.delete(cb)},
-    async allocate(name,cnt){const d=load(),out=[];
-      for(let i=0;i<cnt;i++){const t=d.next++,at=Date.now()+i;d.tokens.push({t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at});out.push({t,at})}
+    onPlaces(cb){return sub(()=>cb(Object.entries(load().places).map(([id,p])=>Object.assign({id},p))))},
+    onTokens(pid,cb){return sub(()=>cb((load().tokens[pid]||[]).slice()))},
+    onAuth(cb){return sub(()=>cb(load().user))},
+    login:sign,signup:sign,
+    async logout(){const d=load();d.user=null;save(d)},
+    async createPlace(data){const d=load(),id="p"+Math.random().toString(36).slice(2,8);d.places[id]=Object.assign({next:1},data);d.tokens[id]=[];save(d);return id},
+    async updatePlace(pid,f){const d=load();if(d.places[pid])Object.assign(d.places[pid],f);save(d)},
+    async allocate(pid,name,cnt){const d=load(),pl=d.places[pid];if(!pl)throw new Error("no-place");
+      const list=d.tokens[pid]=d.tokens[pid]||[],out=[];
+      for(let i=0;i<cnt;i++){const t=pl.next++,at=Date.now()+i;list.push({t,n:cnt>1?name+" ("+(i+1)+"/"+cnt+")":name,st:"waiting",at});out.push({t,at})}
       save(d);return out},
-    async claim(t,from,to,extra){const d=load(),p=d.tokens.find(x=>x.t===t);
+    async claim(pid,t,from,to,extra){const d=load(),p=(d.tokens[pid]||[]).find(x=>x.t===t);
       if(!p||p.st!==from)return false;Object.assign(p,{st:to},extra||{});save(d);return true},
-    async saveSettings(o){const d=load();d.settings=o;save(d)},
-    async resetCounter(){const d=load();d.next=1;save(d)},
-    async clear(ts){const d=load();d.tokens=d.tokens.filter(p=>!ts.includes(p.t));save(d)},
-    async login(_e,pw){if(pw!=="1234")throw new Error("bad")}
+    async clear(pid,ts){const d=load();d.tokens[pid]=(d.tokens[pid]||[]).filter(p=>!ts.includes(p.t));save(d)},
+    async resetCounter(pid){const d=load();if(d.places[pid])d.places[pid].next=1;save(d)}
   };
 }
 
-/* ---------- app ---------- */
-let B,mgr=false,cnt=1,busy=false,skipping=false,autoBusy=false,lastAuto=0;
-let S={tokens:[],st:Object.assign({},DEF)};
-const MY="queueless-mine2";
-let memMine=[];const seen=new Set();
+/* ---------- state ---------- */
+let B,user=null,staffUI=false,tabNow="cust",cnt=1,busy=false,skipping=false,autoBusy=false,lastAuto=0,lastPlace="",lastTripPid=null;
+const view={pid:null};
+const S={places:[],placesLoaded:false,T:{},loaded:{}};
+const subs={};
+const place=pid=>S.places.find(p=>p.id===pid);
+const toks=pid=>S.T[pid]||[];
+const myPlace=()=>user?S.places.find(p=>p.owner===user.uid):null;
+function ensureSub(pid){if(pid&&!subs[pid]&&B)subs[pid]=B.onTokens(pid,t=>{S.T[pid]=t;S.loaded[pid]=true;tick()})}
+
+const MY="queueless-mine3",seen=new Set();let memMine=[];
 try{memMine=JSON.parse(localStorage.getItem(MY)||"[]")}catch(e){}
 const getMine=()=>memMine;
 const setMine=a=>{memMine=a;try{localStorage.setItem(MY,JSON.stringify(a))}catch(e){}};
+const hit=m=>toks(m.p).find(p=>p.t===m.t&&p.at===m.at);
+const mkey=m=>m.p+":"+m.t+":"+m.at;
 
-const active=()=>S.tokens.filter(p=>p.st==="waiting"||p.st==="called");
-function etaFor(tok){
-  const a=active(),i=a.findIndex(p=>p.t===tok);if(i<0)return null;
+const act=pid=>toks(pid).filter(p=>p.st==="waiting"||p.st==="called");
+function etaFor(pid,tok){
+  const s=st(place(pid)),a=act(pid),i=a.findIndex(p=>p.t===tok);if(i<0)return null;
   if(a[i].st==="called")return {ms:Date.now(),ahead:0};
-  return {ms:Date.now()+(i*S.st.avg+S.st.off)*60000,ahead:i};
+  return {ms:Date.now()+(i*s.avg+s.off)*60000,ahead:i};
 }
+
+/* ---------- travel time ---------- */
 const trip={mode:"car",min:null,km:null,approx:false,pos:null,busy:false,msg:""};
 const MODES={car:"by car",bike:"by bike",foot:"on foot"},SPD={car:30,bike:15,foot:5};
 function km2(a,b){const R=6371,d=x=>x*Math.PI/180,dl=d(b.lat-a.lat),dg=d(b.lng-a.lng);
   const h=Math.sin(dl/2)**2+Math.cos(d(a.lat))*Math.cos(d(b.lat))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
 async function routeNow(){
-  const a=trip.pos,b={lat:S.st.lat,lng:S.st.lng};if(!a||b.lat==null)return;
+  const pl=place(view.pid),a=trip.pos;if(!pl||!a||pl.lat==null)return;const b={lat:pl.lat,lng:pl.lng};
   trip.busy=true;trip.msg="Working out the time…";render();
   const base={car:"routed-car",bike:"routed-bike",foot:"routed-foot"}[trip.mode];
   try{
@@ -268,160 +316,263 @@ function tripGo(){
   navigator.geolocation.getCurrentPosition(pos=>{trip.pos={lat:pos.coords.latitude,lng:pos.coords.longitude};routeNow()},
     ()=>{trip.busy=false;trip.msg="Allow location access in your browser to see travel time.";render()},{timeout:10000,maximumAge:60000});
 }
-function tripText(){
-  if(trip.msg)return trip.msg;
-  if(trip.min==null)return "";
+function tripText(pid){
+  if(trip.msg)return trip.msg;if(trip.min==null)return "";
+  const s=st(place(pid));
   let t="About "+trip.min+" min "+MODES[trip.mode]+" · "+trip.km.toFixed(1)+" km"+(trip.approx?" (rough estimate)":"");
-  const mineT=getMine().map(m=>typeof m==="number"?m:m.t);
-  const called=S.tokens.find(p=>mineT.includes(p.t)&&p.st==="called");
-  if(called){const left=Math.ceil((called.calledAt+S.st.grace*60000-Date.now())/60000);
+  const mine=getMine().filter(m=>m.p===pid).map(m=>m.t);
+  const called=toks(pid).find(p=>mine.includes(p.t)&&p.st==="called");
+  if(called){const left=Math.ceil((called.calledAt+s.grace*60000-Date.now())/60000);
     t+=trip.min>left?". You are being called and may not arrive in time, so please hurry.":". You are being called now, so head over.";}
-  else{const w=S.tokens.filter(p=>mineT.includes(p.t)&&p.st==="waiting").map(p=>etaFor(p.t)).filter(Boolean).sort((x,y)=>x.ms-y.ms)[0];
+  else{const w=toks(pid).filter(p=>mine.includes(p.t)&&p.st==="waiting").map(p=>etaFor(pid,p.t)).filter(Boolean).sort((x,y)=>x.ms-y.ms)[0];
     if(w){const lb=w.ms-trip.min*60000;t+=lb<=Date.now()+60000?". Leave now to arrive on time.":". Leave by "+fmt(lb)+" to arrive on time."}}
   return t;
 }
-let lastPlace="";
-function renderMap(){
-  const pl=(S.st.place||"").trim();
-  $("mapCard").hidden=!pl;
-  $("tripBox").hidden=!pl||S.st.lat==null;
+
+/* ---------- rendering ---------- */
+function renderResults(){
+  const q=$("q").value.trim().toLowerCase(),words=q.split(/\s+/).filter(Boolean);
+  const list=S.places.filter(p=>words.every(w=>((p.name||"")+" "+(p.address||"")).toLowerCase().includes(w))).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  $("results").innerHTML=list.slice(0,10).map(p=>'<button class="res" data-open="'+esc(p.id)+'"><b>'+esc(p.name)+"</b><span>"+esc(p.address||"")+"</span></button>").join("");
+  $("resNote").textContent=!S.placesLoaded?"Loading places…":!S.places.length?"No places have registered yet. Place owners can register on the Place owner tab.":!list.length?"No place matches “"+$("q").value.trim()+"”. Check the spelling, or ask the place for its link.":list.length>10?"Showing 10 of "+list.length+". Type more of the name to narrow it down.":"";
+}
+function renderMap(pl){
+  const addr=pl?(pl.address||"").trim():"",pin=pl&&pl.lat!=null;
+  $("mapCard").hidden=!(pl&&(addr||pin));
+  $("tripBox").hidden=!pin;
+  const q=pin&&pl.exact?pl.lat+","+pl.lng:addr;
+  if(q!==lastPlace){lastPlace=q;$("placeName").textContent=addr;
+    $("mapFrame").src=q?"https://maps.google.com/maps?q="+encodeURIComponent(q)+"&z=16&output=embed":"about:blank"}
   $("tripModes").hidden=!trip.pos;$("tripGo").hidden=!!trip.pos;
   document.querySelectorAll("#tripModes button").forEach(b=>b.classList.toggle("alt",b.dataset.mode!==trip.mode));
-  $("tripOut").textContent=tripText();
-  if(pl!==lastPlace){lastPlace=pl;$("placeName").textContent=pl;
-    $("mapFrame").src=pl?"https://maps.google.com/maps?q="+encodeURIComponent(pl)+"&z=15&output=embed":"about:blank"}
-  const pi=$("placeIn");if(pi&&document.activeElement!==pi)pi.value=pl;
+  $("tripOut").textContent=pl?tripText(pl.id):"";
 }
-function render(){
-  renderMap();
-  const have=getMine().map(m=>typeof m==="number"?{t:m}:m);
-  const hit=m=>S.tokens.find(p=>p.t===m.t&&(m.at==null||p.at===m.at));
-  const key=m=>m.t+":"+m.at;
-  const mine=have.filter(hit).map(m=>({m,p:hit(m)}));
-  mine.forEach(x=>seen.add(key(x.m)));
-  const keep=have.filter(m=>!seen.has(key(m))||hit(m));
-  if(S.loaded&&keep.length!==have.length)setMine(keep);
+function renderCustomer(){
+  // forget tokens that disappeared (e.g. after a reset), but only once seen
+  const all=getMine();all.forEach(m=>{if(hit(m))seen.add(mkey(m))});
+  const keep=all.filter(m=>!S.loaded[m.p]||!seen.has(mkey(m))||hit(m));
+  if(keep.length!==all.length)setMine(keep);
+  const pid=view.pid;
+  $("home").hidden=!!pid;$("placeView").hidden=!pid;
+  if(!pid){
+    // your queues
+    const groups={};getMine().forEach(m=>{(groups[m.p]=groups[m.p]||[]).push(m)});
+    let h="";Object.keys(groups).forEach(p=>{const pl=place(p);if(!pl)return;
+      const live=groups[p].map(m=>hit(m)).filter(x=>x&&(x.st==="waiting"||x.st==="called"));
+      if(!live.length)return;
+      h+='<button class="res" data-open="'+esc(p)+'"><b>'+esc(pl.name)+"</b><span>Token "+live.map(x=>"#"+x.t).join(", ")+" · "+(live.some(x=>x.st==="called")?"your turn!":"waiting")+"</span></button>"});
+    $("myQList").innerHTML=h;$("myQ").hidden=!h;
+    return;
+  }
+  const pl=place(pid);
+  $("pvName").textContent=pl?pl.name:(S.placesLoaded?"This place wasn’t found":"Loading…");
+  $("pvAddr").textContent=pl?(pl.address||""):"";
+  $("pvBody").hidden=!pl;
+  if(!pl)return;
+  if(lastTripPid!==pid){lastTripPid=pid;trip.min=null;trip.msg=""}
+  renderMap(pl);
+  const s=st(pl),mine=getMine().filter(m=>m.p===pid).map(m=>({m,p:hit(m)})).filter(x=>x.p);
   $("mineCard").hidden=!mine.length;
   let h="";
   mine.forEach(x=>{
-    const p=x.p,n=p.t,e=etaFor(n);let b="";
+    const p=x.p,n=p.t,e=etaFor(pid,n);let b="";
     if(p.st==="waiting")b='<div class="muted">Please arrive at</div><div class="big">'+fmt(e.ms)+'</div><div class="muted">'+e.ahead+" "+(e.ahead===1?"person":"people")+" ahead · about "+Math.max(0,Math.round((e.ms-Date.now())/60000))+" min from now</div>";
-    else if(p.st==="called"){const l=Math.max(0,Math.ceil((p.calledAt+S.st.grace*60000-Date.now())/1000));b='<div class="big" style="color:var(--warn)">It is your turn</div><div>Go to the counter now. Your spot is held for '+clock(l)+".</div>"}
+    else if(p.st==="called"){const l=Math.max(0,Math.ceil((p.calledAt+s.grace*60000-Date.now())/1000));b='<div class="big" style="color:var(--warn)">It is your turn</div><div>Go to the counter now. Your spot is held for '+clock(l)+".</div>"}
     else if(p.st==="served")b='<div class="big" style="color:var(--good)">Served</div><div class="muted">Thank you for your patience.</div>';
     else b='<div class="big" style="color:var(--bad)">Missed your turn</div><div class="muted">Join again to get a new token.</div>';
     const live=p.st==="waiting"||p.st==="called";
-    h+='<div class="mine"><div class="tok">#'+p.t+'</div><div class="muted">'+esc(p.n)+'</div><hr style="border:0;border-top:1px solid var(--line);margin:10px 0">'+b+'<div style="margin-top:10px">'+(live?'<button class="sm alt" data-leave="'+p.t+'">Leave queue</button>':'<button class="sm alt" data-dismiss="'+p.t+'">Dismiss</button>')+"</div></div>";
+    h+='<div class="mine"><div class="tok">#'+n+'</div><div class="muted">'+esc(p.n)+'</div><hr style="border:0;border-top:1px solid var(--line);margin:10px 0">'+b+'<div style="margin-top:10px">'+(live?'<button class="sm alt" data-leave="'+n+'">Leave queue</button>':'<button class="sm alt" data-dismiss="'+n+'">Dismiss</button>')+"</div></div>";
   });
   $("mineList").innerHTML=h;$("cntV").textContent=cnt;
-  if(!mgr)return;
-  const cur=S.tokens.find(p=>p.st==="called");
+}
+function renderMgmt(){
+  const mp=myPlace();
+  $("authCard").hidden=!!user;
+  $("regCard").hidden=!(user&&!mp&&S.placesLoaded);
+  $("panel").hidden=!(user&&mp);
+  if(!user||!mp)return;
+  const s=st(mp),T=toks(mp.id);
+  $("mpName").textContent=mp.name;$("mpUser").textContent=user.email||"";
+  $("shareLink").value=location.origin+location.pathname+"#place="+mp.id;
+  const cur=T.find(p=>p.st==="called");
   $("nowBox").innerHTML=cur?'<span class="big">#'+cur.t+"</span> "+esc(cur.n):"Nobody called yet.";
   $("markServed").disabled=!cur;$("markNo").disabled=!cur;
   const gb=$("graceBox");
-  if(cur){const l=Math.max(0,Math.ceil((cur.calledAt+S.st.grace*60000-Date.now())/1000));gb.hidden=false;gb.textContent="Waiting for #"+cur.t+" to arrive. Auto-skip in "+clock(l)+"."}else gb.hidden=true;
-  $("autoChk").checked=!!S.st.auto;$("avgV").textContent=S.st.avg+" min";$("offV").textContent=(S.st.off>0?"+":"")+S.st.off+" min";$("graceV").textContent=S.st.grace+" min";
+  if(cur){const l=Math.max(0,Math.ceil((cur.calledAt+s.grace*60000-Date.now())/1000));gb.hidden=false;gb.textContent="Waiting for #"+cur.t+" to arrive. Auto-skip in "+clock(l)+"."}else gb.hidden=true;
+  $("autoChk").checked=!!s.auto;
+  $("avgV").textContent=s.avg+" min";$("offV").textContent=(s.off>0?"+":"")+s.off+" min";$("graceV").textContent=s.grace+" min";
+  const ni=$("nameIn"),pi=$("placeIn");
+  if(document.activeElement!==ni)ni.value=mp.name||"";
+  if(document.activeElement!==pi)pi.value=mp.address||"";
   let rows="";
-  S.tokens.slice(-40).forEach(p=>{
-    const e=p.st==="waiting"?etaFor(p.t):null,lab={waiting:"Waiting",called:"Called",served:"Served",noshow:"No-show"}[p.st];
+  T.slice(-40).forEach(p=>{
+    const e=p.st==="waiting"?etaFor(mp.id,p.t):null,lab={waiting:"Waiting",called:"Called",served:"Served",noshow:"No-show"}[p.st];
     rows+="<tr><td>#"+p.t+"</td><td>"+esc(p.n)+"</td><td>"+(e?fmt(e.ms):"–")+'</td><td><span class="pill '+p.st+'">'+lab+"</span></td><td>"+((p.st==="waiting"||p.st==="called")?'<button class="sm bad" data-rm="'+p.t+'">Remove</button>':"")+"</td></tr>";
   });
-  $("rows").innerHTML=rows;$("empty").hidden=S.tokens.length>0;
+  $("rows").innerHTML=rows;$("empty").hidden=T.length>0;
 }
-async function callNextWaiting(){
-  const ws=S.tokens.filter(p=>p.st==="waiting").slice(0,4);
-  for(const w of ws){if(await B.claim(w.t,"waiting","called",{calledAt:Date.now()}))return}
+function render(){renderResults();renderCustomer();renderMgmt()}
+
+/* ---------- queue actions ---------- */
+async function callNextWaiting(pid){
+  for(const w of toks(pid).filter(p=>p.st==="waiting").slice(0,4)){if(await B.claim(pid,w.t,"waiting","called",{calledAt:Date.now()}))return}
 }
 async function autoSkip(){
-  if(!mgr||skipping)return;const now=Date.now();
-  const late=S.tokens.filter(p=>p.st==="called"&&now-p.calledAt>=S.st.grace*60000);
+  const mp=myPlace();if(!mp||skipping)return;const s=st(mp),now=Date.now();
+  const late=toks(mp.id).filter(p=>p.st==="called"&&now-p.calledAt>=s.grace*60000);
   if(!late.length)return;skipping=true;
-  try{let did=false;for(const p of late){if(await B.claim(p.t,"called","noshow"))did=true}if(did)await callNextWaiting()}catch(e){}
+  try{let did=false;for(const p of late){if(await B.claim(mp.id,p.t,"called","noshow"))did=true}if(did)await callNextWaiting(mp.id)}catch(e){}
   skipping=false;
 }
 async function autoAdvance(){
-  if(!mgr||!S.st.auto||autoBusy||skipping||Date.now()-lastAuto<4000)return;
-  if(S.tokens.some(p=>p.st==="called")||!S.tokens.some(p=>p.st==="waiting"))return;
+  const mp=myPlace();if(!mp||!st(mp).auto||autoBusy||skipping||Date.now()-lastAuto<4000)return;
+  const T=toks(mp.id);if(T.some(p=>p.st==="called")||!T.some(p=>p.st==="waiting"))return;
   autoBusy=true;lastAuto=Date.now();
-  try{await callNextWaiting()}catch(e){}
+  try{await callNextWaiting(mp.id)}catch(e){}
   autoBusy=false;
 }
-const tick=()=>{render();autoSkip();autoAdvance()};
-async function leave(t){
-  const p=S.tokens.find(x=>x.t===t);if(!p)return;
-  try{const ok=await B.claim(t,p.st,"noshow");if(ok&&p.st==="called"&&mgr)await callNextWaiting()}catch(e){}
+function tick(){
+  getMine().forEach(m=>ensureSub(m.p));
+  const mp=myPlace();if(mp)ensureSub(mp.id);
+  render();autoSkip();autoAdvance();
 }
-async function setSt(ch){try{await B.saveSettings(Object.assign({},S.st,ch))}catch(e){}}
+async function leave(pid,t){
+  const p=toks(pid).find(x=>x.t===t);if(!p)return;
+  try{const ok=await B.claim(pid,t,p.st,"noshow");const mp=myPlace();if(ok&&p.st==="called"&&mp&&mp.id===pid)await callNextWaiting(pid)}catch(e){}
+}
+
+/* ---------- location helpers (owner) ---------- */
+async function geocode(v){
+  const parts=v.split(",").map(x=>x.trim()).filter(Boolean),c=[v];
+  for(let i=1;i<parts.length-1;i++)c.push(parts.slice(i).join(", "));
+  if(parts.length>2)c.push(parts.slice(0,2).join(", "));
+  const tries=[...new Set(c)].slice(0,6);
+  for(let i=0;i<tries.length;i++){
+    if(i)await new Promise(r=>setTimeout(r,1100));
+    try{const r=await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q="+encodeURIComponent(tries[i]));const j=await r.json();
+      if(j[0])return{lat:+j[0].lat,lng:+j[0].lon,exact:i===0}}catch(e){}
+  }
+  return null;
+}
+function parseCoords(v){
+  const m=v.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)||v.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/)||v.match(/[?&](?:q|ll|query)=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/)||v.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  return m?{lat:+m[1],lng:+m[2],exact:true}:null;
+}
+const locMsg=g=>!g?"Saved, but this address couldn’t be located, so travel time is off. Stand at your counter and tap “Use my current location”, or paste a Google Maps link or coordinates.":g.exact?"Saved. Customers can now see their travel time.":"Saved with the nearest match, which may be a little off. For an exact pin, tap “Use my current location” at your counter, or paste a Google Maps link.";
+
+/* ---------- events ---------- */
+function setTab(t){tabNow=t;$("tabs").hidden=!staffUI;
+  $("t-cust").setAttribute("aria-selected",t==="cust");$("t-mgmt").setAttribute("aria-selected",t==="mgmt");
+  $("cust").hidden=t!=="cust";$("mgmt").hidden=t!=="mgmt"}
+function route(){
+  const h=location.hash,m=h.match(/^#place=([\w-]+)/);
+  if(/^#staff/i.test(h)){staffUI=true;tabNow="mgmt"}else if(m)tabNow="cust";
+  view.pid=m?m[1]:null;
+  if(view.pid)ensureSub(view.pid);
+  setTab(tabNow);render();
+}
+window.addEventListener("hashchange",route);
+$("t-cust").onclick=()=>{setTab("cust");if(/^#staff/i.test(location.hash))location.hash=""};
+$("t-mgmt").onclick=()=>setTab("mgmt");
+{let n=0,t0=0;$("ttl").addEventListener("click",()=>{const now=Date.now();n=now-t0<1500?n+1:1;t0=now;if(n>=5){staffUI=true;setTab("mgmt")}})}
+$("q").addEventListener("input",renderResults);
+document.addEventListener("click",e=>{const b=e.target.closest("[data-open]");if(b)location.hash="#place="+b.dataset.open});
+$("backBtn").onclick=()=>{location.hash=""};
 
 $("join").onclick=async()=>{
-  const n=$("name").value.trim();
+  const pid=view.pid,n=$("name").value.trim();
+  if(!pid||!place(pid)||busy)return;
   if(!n){$("joinErr").textContent="Enter your name to get a token.";return}
-  if(busy)return;busy=true;$("join").disabled=true;$("joinErr").textContent="";
-  try{const made=await B.allocate(n,cnt);setMine(getMine().concat(made));$("name").value="";cnt=1}
-  catch(e){const c=(e&&e.code||"").replace("firestore/","");$("joinErr").textContent=(e&&e.message==="queue-full")?"The queue numbering is out of sync. Ask the staff to press Reset queue to #1.":c==="permission-denied"?"Couldn’t get a token: the database rules are blocking it (permission-denied). Ask the owner to publish the Firestore rules.":"Couldn’t get a token"+(c?" ("+c+")":"")+". Check your connection and try again."}
+  busy=true;$("join").disabled=true;$("joinErr").textContent="";
+  try{const made=await B.allocate(pid,n,cnt);setMine(getMine().concat(made.map(x=>({p:pid,t:x.t,at:x.at}))));ensureSub(pid);$("name").value="";cnt=1}
+  catch(e){const c=(e&&e.code||"").replace("firestore/","");
+    $("joinErr").textContent=(e&&e.message==="queue-full")?"The queue numbering is out of sync. Ask the staff to press Reset queue to #1.":c==="permission-denied"?"Couldn’t get a token: the database rules are blocking it (permission-denied). Ask the owner to publish the latest Firestore rules.":"Couldn’t get a token"+(c?" ("+c+")":"")+". Check your connection and try again."}
   busy=false;$("join").disabled=false;tick();
 };
 $("cntM").onclick=()=>{cnt=Math.max(1,cnt-1);render()};
 $("cntP").onclick=()=>{cnt=Math.min(6,cnt+1);render()};
 $("mineList").addEventListener("click",async e=>{
   const b=e.target.closest("button");if(!b)return;
-  if(b.dataset.leave)await leave(+b.dataset.leave);
-  if(b.dataset.dismiss)setMine(getMine().filter(m=>(typeof m==="number"?m:m.t)!==+b.dataset.dismiss));
+  if(b.dataset.leave)await leave(view.pid,+b.dataset.leave);
+  if(b.dataset.dismiss)setMine(getMine().filter(m=>!(m.p===view.pid&&m.t===+b.dataset.dismiss)));
   tick();
 });
 $("lookBtn").onclick=()=>{
-  const t=+$("lookup").value,p=S.tokens.find(x=>x.t===t);
+  const pid=view.pid,t=+$("lookup").value,p=toks(pid).find(x=>x.t===t);
   if(!p){$("lookRes").textContent="No token with that number.";return}
-  const e=etaFor(t);
+  const e=etaFor(pid,t);
   $("lookRes").textContent=p.st==="waiting"?"#"+t+": come at "+fmt(e.ms)+" ("+e.ahead+" ahead).":p.st==="called"?"#"+t+" is being called now.":p.st==="served"?"#"+t+" has been served.":"#"+t+" missed the turn.";
 };
-const tab=m=>{$("t-cust").setAttribute("aria-selected",!m);$("t-mgmt").setAttribute("aria-selected",m);$("cust").hidden=m;$("mgmt").hidden=!m};
-$("t-cust").onclick=()=>tab(false);$("t-mgmt").onclick=()=>tab(true);
-$("pinGo").onclick=async()=>{
-  try{await B.login($("email").value.trim(),$("pin").value);mgr=true;$("pinCard").hidden=true;$("panel").hidden=false;$("pinErr").textContent="";tick()}
-  catch(e){$("pinErr").textContent=B.mode==="cloud"?"Sign-in failed. Check the email and password.":"Wrong PIN. The demo PIN is 1234."}
-};
-$("callNext").onclick=async()=>{
-  try{const c=S.tokens.find(p=>p.st==="called");if(c)await B.claim(c.t,"called","served");await callNextWaiting()}catch(e){}
-};
-$("markServed").onclick=()=>{const c=S.tokens.find(p=>p.st==="called");if(c)B.claim(c.t,"called","served").catch(()=>{})};
-$("dirBtn").onclick=()=>{const pl=(S.st.place||"").trim();if(pl)window.open("https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(pl),"_blank","noopener")};
+$("dirBtn").onclick=()=>{const pl=place(view.pid);if(!pl)return;const q=pl.lat!=null&&pl.exact?pl.lat+","+pl.lng:(pl.address||pl.name);
+  window.open("https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(q),"_blank","noopener")};
 $("tripGo").onclick=tripGo;
 $("tripModes").addEventListener("click",e=>{const b=e.target.closest("button");if(b){trip.mode=b.dataset.mode;routeNow()}});
-$("placeSave").onclick=async()=>{
-  const v=$("placeIn").value.trim();let lat=null,lng=null;
-  const m=v.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
-  $("placeMsg").textContent="Saving…";
-  if(m){lat=+m[1];lng=+m[2]}
-  else if(v){try{const r=await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q="+encodeURIComponent(v));const j=await r.json();if(j[0]){lat=+j[0].lat;lng=+j[0].lon}}catch(e){}}
-  await setSt({place:v,lat,lng});
-  $("placeMsg").textContent=!v?"":lat==null?"Saved, but exact coordinates weren’t found, so travel time is off. Try a fuller address, or type coordinates like 18.5204, 73.8567.":"Saved. Customers can now see their travel time.";
+
+// owner account
+const authMsg=e=>{const c=(e&&e.code)||"";return c.includes("email-already")?"That email already has an account. Tap Sign in.":c.includes("weak-password")?"Choose a longer password (6 or more characters).":c.includes("invalid-email")?"That email doesn’t look right.":c.includes("operation-not-allowed")?"Email sign-in isn’t turned on in Firebase yet.":c.includes("unauthorized-domain")?"This website address isn’t allowed in Firebase (Authentication, Settings, Authorized domains).":c.includes("network")?"No connection. Try again.":"Couldn’t sign in. Check the email and password."};
+$("loginBtn").onclick=async()=>{$("authErr").textContent="";try{await B.login($("email").value.trim(),$("pw").value)}catch(e){$("authErr").textContent=authMsg(e)}};
+$("signupBtn").onclick=async()=>{$("authErr").textContent="";try{await B.signup($("email").value.trim(),$("pw").value)}catch(e){$("authErr").textContent=authMsg(e)}};
+const out=async()=>{try{await B.logout()}catch(e){}};$("logoutBtn").onclick=out;$("logoutBtn2").onclick=out;
+$("regBtn").onclick=async()=>{
+  const name=$("rName").value.trim(),addr=$("rAddr").value.trim(),msg=$("regMsg");
+  if(!name){msg.textContent="Enter the place name.";return}
+  $("regBtn").disabled=true;msg.textContent="Registering…";
+  try{
+    const g=addr?(parseCoords(addr)||await geocode(addr)):null;
+    await B.createPlace({name,address:/^https?:/i.test(addr)?"":addr,lat:g?g.lat:null,lng:g?g.lng:null,exact:!!(g&&g.exact),owner:user.uid,avg:5,off:0,grace:3,auto:false});
+    msg.textContent="";
+  }catch(e){msg.textContent="Couldn’t register"+(e&&e.code?" ("+e.code.replace("firestore/","")+")":"")+". Make sure the latest Firestore rules are published."}
+  $("regBtn").disabled=false;
 };
-$("placeClear").onclick=()=>{$("placeIn").value="";$("placeMsg").textContent="";setSt({place:"",lat:null,lng:null})};
-$("autoChk").onchange=e=>setSt({auto:e.target.checked});
-$("markNo").onclick=()=>{const c=S.tokens.find(p=>p.st==="called");if(c)leave(c.t)};
-if($("panel"))$("panel").addEventListener("click",e=>{
-  const b=e.target.closest("button");if(!b)return;
-  if(b.dataset.k){const k=b.dataset.k;let v=S.st[k]+ +b.dataset.d;
-    if(k==="avg"||k==="grace")v=Math.max(1,v);else v=Math.max(-30,Math.min(120,v));
-    setSt({[k]:v})}
-  if(b.dataset.rm)leave(+b.dataset.rm);
+$("copyLink").onclick=async()=>{const i=$("shareLink");try{await navigator.clipboard.writeText(i.value);$("copyMsg").textContent="Link copied."}catch(e){i.select();$("copyMsg").textContent="Select the link and copy it."}};
+
+// owner queue controls
+const mpid=()=>{const m=myPlace();return m&&m.id};
+const upd=f=>{const id=mpid();if(id)B.updatePlace(id,f).catch(()=>{})};
+$("callNext").onclick=async()=>{const id=mpid();if(!id)return;
+  try{const c=toks(id).find(p=>p.st==="called");if(c)await B.claim(id,c.t,"called","served");await callNextWaiting(id)}catch(e){}};
+$("markServed").onclick=()=>{const id=mpid(),c=id&&toks(id).find(p=>p.st==="called");if(c)B.claim(id,c.t,"called","served").catch(()=>{})};
+$("markNo").onclick=()=>{const id=mpid(),c=id&&toks(id).find(p=>p.st==="called");if(c)leave(id,c.t)};
+$("autoChk").onchange=e=>upd({auto:e.target.checked});
+$("panel").addEventListener("click",e=>{
+  const b=e.target.closest("button");if(!b)return;const mp=myPlace();if(!mp)return;
+  if(b.dataset.k){const k=b.dataset.k,s=st(mp);let v=s[k]+ +b.dataset.d;
+    if(k==="avg"||k==="grace")v=Math.max(1,v);else v=Math.max(-30,Math.min(120,v));upd({[k]:v})}
+  if(b.dataset.rm)leave(mp.id,+b.dataset.rm);
 });
+$("placeSave").onclick=async()=>{
+  const mp=myPlace();if(!mp)return;
+  const name=$("nameIn").value.trim(),v=$("placeIn").value.trim(),msg=$("placeMsg");
+  if(!name){msg.textContent="The place needs a name.";return}
+  if(!v){await upd({name,address:"",lat:null,lng:null,exact:false});msg.textContent="Saved.";return}
+  msg.textContent="Finding the location…";
+  const g=parseCoords(v)||await geocode(v);
+  const address=/^https?:/i.test(v)?"":v;
+  try{await B.updatePlace(mp.id,{name,address,lat:g?g.lat:null,lng:g?g.lng:null,exact:!!(g&&g.exact)});msg.textContent=locMsg(g)}catch(e){msg.textContent="Couldn’t save. Check your connection."}
+};
+$("placeHere").onclick=()=>{
+  const mp=myPlace(),msg=$("placeMsg");if(!mp)return;
+  if(!navigator.geolocation){msg.textContent="This browser can’t share your location.";return}
+  msg.textContent="Reading your position…";
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const lat=+pos.coords.latitude.toFixed(6),lng=+pos.coords.longitude.toFixed(6);
+    const v=$("placeIn").value.trim()||(lat+", "+lng);
+    try{await B.updatePlace(mp.id,{name:$("nameIn").value.trim()||mp.name,address:v,lat,lng,exact:true});msg.textContent="Saved your current position as the location. Customers can now see their travel time."}catch(e){msg.textContent="Couldn’t save. Check your connection."}
+  },()=>{msg.textContent="Couldn’t read your location. Allow location access for this site and try again."},{enableHighAccuracy:true,timeout:15000});
+};
 $("reset").onclick=async()=>{
-  if(!confirm("Remove every token and restart numbering from #1?"))return;
-  try{await B.clear(S.tokens.map(p=>p.t));await B.resetCounter()}catch(e){alert("Could not fully reset. Make sure the updated Firestore rules are published.")}setMine([]);
+  const id=mpid();if(!id||!confirm("Remove every token and restart numbering from #1?"))return;
+  try{await B.clear(id,toks(id).map(p=>p.t));await B.resetCounter(id)}catch(e){alert("Could not fully reset. Make sure the latest Firestore rules are published.")}
 };
 
 async function start(){
   const configured=FIREBASE_CONFIG.apiKey&&FIREBASE_CONFIG.projectId;
   try{B=configured?await cloudBackend(FIREBASE_CONFIG):demoBackend()}
   catch(e){B=demoBackend();$("modeBox").hidden=false;$("modeBox").textContent="Couldn’t reach the cloud database, so this page is running in demo mode. Check your connection and reload."}
-  if(B.mode==="demo"&&$("modeBox").hidden){$("modeBox").hidden=false;$("modeBox").textContent="NOT LINKED: demo mode keeps tokens inside this one browser, so tokens taken on other phones will not reach the staff panel. Add your Firebase settings to the file to link them."}
-  if(B.mode==="cloud"){$("emailRow").hidden=false;$("pinLbl").textContent="Password"}
-  const openStaff=()=>{$("tabs").hidden=false;tab(true)};
-  if(STAFF)openStaff();
-  else{let n=0,t0=0;document.querySelector("h1").addEventListener("click",()=>{const now=Date.now();n=now-t0<1500?n+1:1;t0=now;if(n>=5)openStaff()})}
-  B.onTokens(t=>{S.tokens=t;S.loaded=true;tick()});
-  B.onSettings(s=>{S.st=Object.assign({},DEF,s);tick()});
+  if(B.mode==="demo"&&$("modeBox").hidden){$("modeBox").hidden=false;$("modeBox").textContent="NOT LINKED: demo mode keeps everything inside this one browser. Add your Firebase settings to the file so all phones share the same places and queues. In demo mode any email with a 4+ character password signs in."}
+  B.onPlaces(l=>{S.places=l;S.placesLoaded=true;tick()});
+  B.onAuth(u=>{user=u;tick()});
+  route();
 }
 setInterval(tick,1000);render();start();
 </script>
